@@ -11,9 +11,19 @@
   when: settler_upgrade_packages
 
 
+# Force Locale
+- name: force locale
+  lineinfile: line='LC_ALL=en_US.UTF-8' dest=/etc/default/locale
+- name: locale gen
+  locale_gen: name=en_US.UTF-8 state=present
+
+
 # Install Some PPAs
 - name: install software-properties-common
-  apt: name=software-properties-common state=present
+  apt: name={{ item }} state=present
+  with_items:
+    - "software-properties-common"
+    - "curl"
 
 - name: add package repositories
   apt_repository: repo={{ item }}
@@ -22,6 +32,18 @@
     - "ppa:rwky/redis"
     - "ppa:chris-lea/node.js"
     - "ppa:ondrej/php5-5.6"
+
+- name: add postgresql apt key
+  apt_key: url=https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+- name: add postgresql repository
+  apt_repository: repo='deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main'
+
+- name: add blackfire apt key
+  apt_key: url=https://packagecloud.io/gpg.key
+
+- name: add blackfire repository
+  apt_repository: repo='deb http://packages.blackfire.io/debian any main'
 
 
 # Update Package Lists
@@ -34,7 +56,6 @@
   apt: name={{ item }} state=present
   with_items:
     - "build-essential"
-    - "curl"
     - "dos2unix"
     - "gcc"
     - "git"
@@ -65,7 +86,7 @@
 
 
 # Install PHP Stuffs
-- name: install php stuff
+- name: install php stuffs
   apt: name={{ item }} state=present
   with_items:
     - "php5-cli"
@@ -158,7 +179,7 @@
 # Add The HHVM Key & Repository
 - apt_key: url=http://dl.hhvm.com/conf/hhvm.gpg.key state=present
   tags: [hhvm]
-- apt_repository: repo='deb http://dl.hhvm.com/ubuntu trusty main' state=present update_cache=yes
+- apt_repository: repo='deb http://dl.hhvm.com/ubuntu utopic main' state=present update_cache=yes
   tags: [hhvm]
 - apt: name=hhvm state=present
   tags: [hhvm]
@@ -190,13 +211,6 @@
     - {regex: "memory_limit = .*", line: "memory_limit = 512M"}
     - {regex: "date.timezone =.*", line: "date.timezone = UTC"}
 
-
-# Copy fastcgi_params to Nginx because they broke it on the PPA
-- name: copy fastcgi_params
-  template: dest=/etc/nginx/fastcgi_params src=fastcgi_params
-
-
-# Enable Remote xdebug
 - name: enable remote xdebug
   template: dest=/etc/php5/mods-available/xdebug.ini src=xdebug.ini
   notify:
@@ -204,6 +218,11 @@
 - file: src=../../mods-available/xdebug.ini dest=/etc/php5/fpm/conf.d/20-xdebug.ini state=link force=yes
   notify:
     - restart php5-fpm
+
+
+# Copy fastcgi_params to Nginx because they broke it on the PPA
+- name: copy fastcgi_params
+  template: dest=/etc/nginx/fastcgi_params src=fastcgi_params
 
 
 # Set The Nginx & PHP-FPM User
@@ -262,15 +281,15 @@
 
 
 # Configure MySQL Remote Access
-- lineinfile: dest=/etc/mysql/my.cnf regexp="bind-address.*=.*" line="bind-address = 10.0.2.15"
+- lineinfile: dest=/etc/mysql/my.cnf regexp="bind-address.*=.*" line="bind-address = 0.0.0.0"
   notify:
     - restart mysql
 
-- mysql_user: name=root host=10.0.2.2 priv=*.*:ALL,GRANT password={{ settler_mysql_root_password }}
+- mysql_user: name=root host=0.0.0.0 priv=*.*:ALL,GRANT password={{ settler_mysql_root_password }}
   notify:
     - restart mysql
 
-- mysql_user: name=homestead host=10.0.2.2 priv=*.*:ALL,GRANT password={{ settler_mysql_root_password }}
+- mysql_user: name=homestead host=0.0.0.0 priv=*.*:ALL,GRANT password={{ settler_mysql_root_password }}
   notify:
     - restart mysql
 
@@ -281,12 +300,17 @@
 - mysql_db: name=homestead
 
 
+# Add Timezone Support To MySQL
+- name: add timezone support to mysql
+  shell: mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql --user=root --password=secret mysql
+
+
 # Install Postgres
 - name: install postgres
   apt: name={{ item }} state=present
   with_items:
-    - postgresql
-    - postgresql-contrib
+    - postgresql-9.4
+    - postgresql-contrib-9.4
     - libpq-dev
     - python-psycopg2
 
@@ -295,11 +319,11 @@
 
 
 # Configure Postgres Remote Access
-- lineinfile: dest=/etc/postgresql/9.3/main/postgresql.conf regexp="listen_addresses =.*" line="listen_addresses = '*'"
+- lineinfile: dest=/etc/postgresql/9.4/main/postgresql.conf regexp="listen_addresses =.*" line="listen_addresses = '*'"
   notify:
     - restart postgresql
 
-- lineinfile: dest=/etc/postgresql/9.3/main/pg_hba.conf line="host    all             all             10.0.2.2/32               md5"
+- lineinfile: dest=/etc/postgresql/9.4/main/pg_hba.conf line="host    all             all             10.0.2.2/32               md5"
   notify:
     - restart postgresql
 
@@ -315,6 +339,14 @@
 - postgresql_db: name=homestead owner=homestead
   sudo: yes
   sudo_user: postgres
+
+
+# Install Blackfire
+- name: install blackfire
+  apt: name={{ item }} state=present
+  with_items:
+    - blackfire-agent
+    - blackfire-php
 
 
 # Install A Few Other Things
@@ -333,5 +365,16 @@
   service: name=beanstalkd state=started enabled=yes
 
 
-# Write Bash Aliases
-#cp /vagrant/aliases /home/vagrant/.bash_aliases
+# Enable Swap Memory
+- command: /bin/dd if=/dev/zero of=/var/swap.1 bs=1M count=1024 creates=/var/swap.1
+  register: swap
+- command: /sbin/mkswap /var/swap.1
+  when: swap.changed
+- command: /sbin/swapon /var/swap.1
+  when: swap.changed
+
+
+# Minimize The Disk Image
+#- command: dd if=/dev/zero of=/EMPTY bs=1M
+#- command: rm -f /EMPTY
+#- command: sync
