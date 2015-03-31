@@ -71,15 +71,6 @@
     - "vim"
 
 
-# Install A Few Helpful Python Packages
-- name: install a few helpful python packages
-  pip: name={{ item }} state=present
-  with_items:
-    - "httpie"
-    - "fabric"
-    - "python-simple-hipchat"
-
-
 # Set My Timezone
 - name: set my timezone
   file: src={{ settler_timezone_file }} dest=/etc/localtime state=link force=yes
