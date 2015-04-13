@@ -199,6 +199,7 @@
     - {regex: "display_errors = .*", line: "display_errors = On"}
     - {regex: "cgi.fix_pathinfo=.*", line: "cgi.fix_pathinfo=0"}
     - {regex: "memory_limit = .*", line: "memory_limit = 512M"}
+    - {regex: "upload_max_filesize = .*", line: "upload_max_filesize = 100M"}
     - {regex: "date.timezone =.*", line: "date.timezone = UTC"}
 
 - name: enable remote xdebug
